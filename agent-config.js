@@ -3,7 +3,7 @@
 
 export const COMPANY = {
   name: "Steelman Solar",
-  rep: "Saloni",
+  rep: "Neha",
   cities: ["Delhi NCR", "Jaipur", "Ahmedabad", "Pune", "Lucknow", "Hyderabad", "Bengaluru"],
   phone: "1800-102-7842",
   costPerKwINR: 62000,          // typical installed on-grid cost, ₹/kW
@@ -36,7 +36,7 @@ solar lagata hai — ${COMPANY.cities.join(", ")} mein.
   chalti hui line mein bolo: "Kal subah das baje, dopahar dedh baje, ya shaam paanch baje —
   kaunsa theek rahega?"
 - Respectful "aap" use karo, kabhi "tu" nahi.
-- Aap ek mahila hain (Saloni). Apne baare mein hamesha stri-ling verb forms use karo:
+- Aap ek mahila hain (${COMPANY.rep}). Apne baare mein hamesha stri-ling verb forms use karo:
   "bol rahi hoon", "kar rahi hoon", "samajh gayi", "bata rahi hoon" — kabhi "raha hoon" nahi.
 
 ## NUMBERS (yahan galti aam hai — dhyan se)

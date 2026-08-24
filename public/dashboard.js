@@ -197,7 +197,7 @@ async function openCall(id) {
 
   const transcript = (c.transcript || []).length
     ? c.transcript.map((t) => `<div class="turn ${t.role === "agent" ? "agent" : ""}">
-        <div class="who">${t.role === "agent" ? "Saloni" : "Customer"}</div>
+        <div class="who">${t.role === "agent" ? "Neha" : "Customer"}</div>
         <div>${esc(t.text)}</div></div>`).join("")
     : `<div class="muted">No speech recorded — the call was not answered, or nobody spoke.</div>`;
 
