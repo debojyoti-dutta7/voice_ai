@@ -64,6 +64,15 @@ function renderStats(s) {
     ["Avg duration", s.avgDurationSec ? `${s.avgDurationSec}s` : "—"],
   ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
 
+  const tel = s.telephony;
+  const hint = $("telephony-hint");
+  if (tel && hint) {
+    const show = !tel.secretSet || s.calls > 0 && s.connectRate < 100;
+    hint.style.display = show ? "block" : "none";
+    $("telephony-text").textContent = tel.hint;
+    $("telephony-url").textContent = tel.voicebotUrl;
+  }
+
   const c = s.campaign || {};
   const left = c.queued != null ? c.queued : c.pending;
   $("campaign-status").innerHTML = c.running

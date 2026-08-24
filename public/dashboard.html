@@ -67,7 +67,7 @@
   .p-callback,.p-calling,.p-warm { background:#332711; color:var(--warn); }
   .p-not_interested,.p-failed,.p-dnc,.p-cold { background:#331717; color:var(--bad); }
   .p-disqualified,.p-pending { background:#1e2530; color:var(--dim); }
-  .p-no_answer { background:#1e2530; color:var(--dim); }
+  .p-no_answer,.p-stream_failed { background:#1e2530; color:var(--dim); }
 
   .muted { color:var(--dim); }
   .empty { padding:48px 24px; text-align:center; color:var(--dim); }
@@ -169,6 +169,11 @@
   </div>
 
   <section id="tab-calls">
+    <div id="telephony-hint" class="card" style="display:none; margin-bottom:16px; padding:14px 18px">
+      <strong style="display:block; margin-bottom:6px">Telephony setup</strong>
+      <p class="muted" style="margin:0 0 8px; font-size:13px" id="telephony-text"></p>
+      <code id="telephony-url" style="display:block; word-break:break-all; font-size:12px; background:var(--bg); padding:8px 10px; border-radius:6px; border:1px solid var(--line)"></code>
+    </div>
     <div class="wrap"><table>
       <thead><tr><th>When</th><th>Phone</th><th>Name</th><th>Outcome</th><th>Interest</th>
         <th>City</th><th>Bill</th><th>System</th><th>Booked</th><th>Dur</th><th>Turns</th></tr></thead>

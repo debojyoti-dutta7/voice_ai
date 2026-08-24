@@ -123,6 +123,8 @@ server.on("upgrade", (req, socket, head) => {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       return socket.destroy();
     }
+    const peer = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+    console.log(`[exotel] websocket upgrade accepted from ${peer} url="${req.url}"`);
     return exotelWss.handleUpgrade(req, socket, head, (ws) => exotelWss.emit("connection", ws, req));
   }
 

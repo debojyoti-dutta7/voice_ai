@@ -53,11 +53,18 @@ async function dialOne(lead) {
       if (!info) continue;
       if (info.Status && info.Status !== "in-progress") {
         const connected = store.getCall(call.id)?.connected;
+        const outcome = connected
+          ? undefined
+          : info.Status === "busy"
+            ? "no_answer"
+            : info.Status === "completed" || info.Status === "in-progress"
+              ? "stream_failed"
+              : info.Status;
         store.updateCall(call.id, {
           exotelStatus: info.Status,
           durationSec: Number(info.Duration) || store.getCall(call.id)?.durationSec || 0,
           endedAt: new Date().toISOString(),
-          ...(connected ? {} : { outcome: info.Status === "busy" ? "no_answer" : info.Status }),
+          ...(connected ? {} : { outcome }),
         });
         store.updateLead(lead.id, { status: connected ? "done" : "failed" });
         break;

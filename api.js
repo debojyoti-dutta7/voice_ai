@@ -3,6 +3,21 @@ import * as store from "./store.js";
 import * as auth from "./auth.js";
 import { startCampaign, stopCampaign, campaignState, dialLead } from "./campaign.js";
 
+function telephonyInfo() {
+  const host = process.env.PUBLIC_HOST || "agent.snapecab.com";
+  const secret = process.env.EXOTEL_STREAM_SECRET || "";
+  return {
+    host,
+    secretSet: !!secret,
+    voicebotUrl: secret
+      ? `wss://${host}/exotel-stream/${secret}`
+      : `wss://${host}/exotel-stream`,
+    hint: secret
+      ? "Paste voicebotUrl into Exotel Voicebot applet (path style — query strings are sometimes stripped)."
+      : "Set EXOTEL_STREAM_SECRET in .env, restart, then paste the URL into Exotel.",
+  };
+}
+
 const json = (res, code, body) => {
   res.writeHead(code, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
@@ -47,7 +62,7 @@ export async function handleApi(req, res, url) {
     if (!auth.requireAuth(req, res)) return true;
 
     if (p === "/api/stats" && req.method === "GET") {
-      json(res, 200, { ...store.stats(), campaign: campaignState() });
+      json(res, 200, { ...store.stats(), campaign: campaignState(), telephony: telephonyInfo() });
       return true;
     }
 
