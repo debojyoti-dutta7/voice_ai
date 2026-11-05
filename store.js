@@ -17,6 +17,11 @@ let client = null;
 let leadsCol = null;
 let callsCol = null;
 let ready = false;
+let lastError = null;
+let retryTimer = null;
+// Documents changed while Mongo was unreachable, flushed on reconnect.
+const pendingLeads = new Set();
+const pendingCalls = new Set();
 
 const mem = { leads: [], calls: [] };
 const seq = { lead: 1, call: 1 };
@@ -25,13 +30,78 @@ const nextId = (prefix, key) => `${prefix}${seq[key]++}`;
 
 /** Mirror a document to Mongo. Failures are logged, never thrown into a live call. */
 function mirror(col, doc) {
-  if (!ready || !col) return;
-  col.replaceOne({ id: doc.id }, doc, { upsert: true }).catch((e) =>
-    console.error(`[store] write failed for ${doc.id}:`, e.message)
-  );
+  const pending = col === leadsCol ? pendingLeads : pendingCalls;
+  if (!ready || !col) {
+    // Remember it so nothing said on a call is lost when Mongo comes back.
+    pending.add(doc.id);
+    return;
+  }
+  col.replaceOne({ id: doc.id }, doc, { upsert: true }).catch((e) => {
+    pending.add(doc.id);
+    console.error(`[store] write failed for ${doc.id}:`, e.message);
+  });
 }
 
-export async function init() {
+async function flushPending() {
+  for (const [set, col, list] of [
+    [pendingLeads, leadsCol, mem.leads],
+    [pendingCalls, callsCol, mem.calls],
+  ]) {
+    for (const id of [...set]) {
+      const doc = list.find((d) => d.id === id);
+      if (!doc) { set.delete(id); continue; }
+      try {
+        await col.replaceOne({ id }, doc, { upsert: true });
+        set.delete(id);
+      } catch (e) {
+        console.error(`[store] flush failed for ${id}:`, e.message);
+        return;
+      }
+    }
+  }
+}
+
+export const storeStatus = () => ({
+  connected: ready,
+  error: lastError,
+  pendingWrites: pendingLeads.size + pendingCalls.size,
+});
+
+/**
+ * Connect to Mongo. A failure here is not fatal: the process keeps running on the
+ * in-memory mirror and retries in the background, because a database blip must not
+ * mean the agent cannot take calls at all. Writes made while disconnected are queued
+ * and flushed on reconnect.
+ */
+export async function init({ required = false } = {}) {
+  try {
+    await connect();
+  } catch (err) {
+    lastError = err.message;
+    console.error(`[store] MONGO UNAVAILABLE — ${err.message}`);
+    console.error("[store] running in memory only; data will be written when Mongo returns");
+    if (required) throw err;
+    scheduleRetry();
+  }
+}
+
+function scheduleRetry(ms = 15000) {
+  if (retryTimer) return;
+  retryTimer = setTimeout(async () => {
+    retryTimer = null;
+    try {
+      await connect();
+      console.log(`[store] reconnected; flushing ${pendingLeads.size + pendingCalls.size} pending writes`);
+      await flushPending();
+    } catch (err) {
+      lastError = err.message;
+      scheduleRetry(ms);
+    }
+  }, ms);
+  retryTimer.unref?.();
+}
+
+async function connect() {
   const uri = process.env.MONGO_URI;
   if (!uri) throw new Error("MONGO_URI is not set");
 
@@ -47,9 +117,17 @@ export async function init() {
   await callsCol.createIndex({ callSid: 1 });
   await callsCol.createIndex({ startedAt: -1 });
 
-  mem.leads = await leadsCol.find({}, { projection: { _id: 0 } }).toArray();
-  mem.calls = await callsCol.find({}, { projection: { _id: 0 } }).toArray();
+  // Only adopt Mongo's copy on a cold start. On reconnect the in-memory copy is
+  // newer — it has whatever was said while the database was away.
+  const coldStart = mem.leads.length === 0 && mem.calls.length === 0;
+  if (coldStart) {
+    mem.leads = await leadsCol.find({}, { projection: { _id: 0 } }).toArray();
+    mem.calls = await callsCol.find({}, { projection: { _id: 0 } }).toArray();
+  }
   ready = true;
+  lastError = null;
+
+  if (!coldStart) return;
 
   const maxNum = (arr, p) =>
     arr.reduce((m, x) => Math.max(m, Number(String(x.id).replace(p, "")) || 0), 0);
@@ -160,6 +238,12 @@ export function createCall({ callSid, leadId, phone, direction = "outbound" }) {
     direction, startedAt: new Date().toISOString(),
     endedAt: null, durationSec: null, exotelStatus: null, connected: false,
     outcome: null, interest: null, reason: null,
+    // Questionnaire answers. Each field keeps the structured value, what the candidate
+    // actually said, and whether it was answered at all — "not answered" must never
+    // collapse into zero.
+    candidate: { fields: {}, experience: [], operators: [], locations: [] },
+    followUpRequired: false,
+    callbackAt: null,
     captured: {}, booking: null, transcript: [], toolCalls: [],
   };
   mem.calls.push(call);
@@ -182,6 +266,78 @@ export function updateCall(id, patch) {
   Object.assign(call, patch);
   mirror(callsCol, call);
   return call;
+}
+
+function candidateOf(id) {
+  const call = getCall(id);
+  if (!call) return null;
+  call.candidate ||= { fields: {}, experience: [], operators: [], locations: [] };
+  return call;
+}
+
+export function recordAnswer(id, { field, value, spoken, status }) {
+  const call = candidateOf(id);
+  if (!call) return;
+  call.candidate.fields[field] = {
+    value: status === "answered" ? value : null,
+    spoken: spoken || null,
+    status: status || "answered",
+    at: new Date().toISOString(),
+  };
+  if (status === "unclear") call.followUpRequired = true;
+  mirror(callsCol, call);
+}
+
+export function recordExperience(id, { category, item, years, months, status, spoken }) {
+  const call = candidateOf(id);
+  if (!call) return;
+  const answered = status === "answered";
+  const existing = call.candidate.experience.find((e) => e.item === item && e.category === category);
+  const entry = {
+    category, item,
+    years: answered ? Number(years) || 0 : null,
+    months: answered ? Number(months) || 0 : null,
+    status: status || "answered",
+    spoken: spoken || null,
+  };
+  if (existing) Object.assign(existing, entry);
+  else call.candidate.experience.push(entry);
+  if (status === "unclear") call.followUpRequired = true;
+  mirror(callsCol, call);
+}
+
+export function recordOperator(id, op) {
+  const call = candidateOf(id);
+  if (!call) return;
+  const existing = call.candidate.operators.find(
+    (o) => o.operator?.toLowerCase() === String(op.operator || "").toLowerCase()
+  );
+  const entry = {
+    operator: op.operator,
+    years: op.years != null ? Number(op.years) : null,
+    months: op.months != null ? Number(op.months) : null,
+    employmentType: op.employment_type || null,
+    partnerName: op.partner_name || null,
+  };
+  if (existing) Object.assign(existing, entry);
+  else call.candidate.operators.push(entry);
+  mirror(callsCol, call);
+}
+
+export function recordLocation(id, loc) {
+  const call = candidateOf(id);
+  if (!call) return;
+  const existing = call.candidate.locations.find(
+    (l) => l.location?.toLowerCase() === String(loc.location || "").toLowerCase()
+  );
+  const entry = {
+    location: loc.location,
+    minSalary: loc.min_salary_inr != null ? Number(loc.min_salary_inr) : null,
+    isHome: !!loc.is_home_location,
+  };
+  if (existing) Object.assign(existing, entry);
+  else call.candidate.locations.push(entry);
+  mirror(callsCol, call);
 }
 
 export function appendTranscript(id, role, text) {
@@ -209,8 +365,10 @@ export function stats() {
     calls: calls.length,
     connected: connected.length,
     connectRate: calls.length ? Math.round((connected.length / calls.length) * 100) : 0,
-    booked: calls.filter((c) => c.booking).length,
-    interested: calls.filter((c) => c.outcome === "interested").length,
+    completed: calls.filter((c) => c.outcome === "completed").length,
+    partial: calls.filter((c) => c.outcome === "partial").length,
+    followUp: calls.filter((c) => c.followUpRequired).length,
+    callbacks: calls.filter((c) => c.outcome === "callback").length,
     byOutcome: by("outcome"),
     avgDurationSec: connected.length
       ? Math.round(connected.reduce((a, c) => a + (c.durationSec || 0), 0) / connected.length)

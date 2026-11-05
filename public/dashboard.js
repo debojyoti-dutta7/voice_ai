@@ -20,9 +20,10 @@ document.querySelectorAll(".tab").forEach((t) =>
 // --- render ----------------------------------------------------------------
 function renderStats(s) {
   $("stats").innerHTML = [
-    ["Leads", s.leads], ["Pending", s.leadsPending], ["Calls", s.calls],
+    ["Candidates", s.leads], ["Pending", s.leadsPending], ["Calls", s.calls],
     ["Connected", `${s.connected} <span class="muted" style="font-size:13px">(${s.connectRate}%)</span>`],
-    ["Interested", s.interested], ["Booked", s.booked],
+    ["Screened", s.completed ?? 0], ["Partial", s.partial ?? 0],
+    ["Callbacks", s.callbacks ?? 0], ["Needs follow-up", s.followUp ?? 0],
     ["Avg duration", s.avgDurationSec ? `${s.avgDurationSec}s` : "—"],
   ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
 
@@ -38,23 +39,23 @@ function renderStats(s) {
 function renderCalls(calls) {
   const b = $("calls-body");
   if (!calls.length) {
-    b.innerHTML = `<tr><td colspan="11" class="empty">No calls yet. Upload leads, then start a campaign.</td></tr>`;
+    b.innerHTML = `<tr><td colspan="11" class="empty">No calls yet. Upload candidates, then start a campaign.</td></tr>`;
     return;
   }
   b.innerHTML = calls.map((c) => {
-    const cap = c.captured || {};
+    const s = c.summary || {};
     return `<tr class="click" data-id="${c.id}">
       <td class="muted">${when(c.startedAt)}</td>
       <td>${esc(c.phone || "—")}</td>
-      <td>${esc(c.leadName || "")}</td>
+      <td>${esc(s.name || c.leadName || "—")}${c.followUpRequired ? ' <span class="flag" title="Recruiter follow-up required">⚑</span>' : ""}</td>
       <td>${pill(c.outcome || (c.connected ? "connected" : c.exotelStatus))}</td>
-      <td>${pill(c.interest)}</td>
-      <td>${esc(cap.city || "—")}</td>
-      <td>${cap.monthlyBill ? inr(cap.monthlyBill) : "—"}</td>
-      <td>${cap.systemKw ? cap.systemKw + " kW" : "—"}</td>
-      <td>${c.booking ? `<span class="pill p-interested">${esc(c.booking.id)}</span>` : "—"}</td>
+      <td>${pill(s.openToChange)}</td>
+      <td>${esc(s.totalExperience || "—")}</td>
+      <td>${esc(s.designation || "—")}</td>
+      <td>${s.currentSalary ? inr(s.currentSalary) : "—"}</td>
+      <td>${esc(s.noticePeriod || "—")}</td>
+      <td class="muted">${s.answered ?? 0}/20</td>
       <td class="muted">${c.durationSec != null ? c.durationSec + "s" : "—"}</td>
-      <td class="muted">${c.turns ?? 0}</td>
     </tr>`;
   }).join("");
   b.querySelectorAll("tr.click").forEach((r) => r.addEventListener("click", () => openCall(r.dataset.id)));
@@ -126,31 +127,85 @@ function renderLeads(leads) {
   );
 }
 
+// The questionnaire, in the order it is asked.
+const FIELD_LABELS = [
+  ["name", "Full name"],
+  ["open_to_change", "Open to change"],
+  ["qualification", "Qualification"],
+  ["qualification_branch", "Branch / trade"],
+  ["designation", "Designation"],
+  ["total_experience", "Total experience"],
+  ["current_salary", "Current take-home"],
+  ["two_wheeler", "Two-wheeler"],
+  ["driving_licence", "Driving licence"],
+  ["home_location", "Home location"],
+  ["home_min_salary", "Home min take-home"],
+  ["notice_period", "Notice period"],
+  ["earliest_joining_date", "Earliest joining"],
+  ["current_company", "Current company"],
+  ["current_work_location", "Current work location"],
+  ["work_at_height_training", "Work at height training"],
+  ["work_at_height_expiry", "Training expiry"],
+];
+
+const fieldCell = (f) => {
+  if (!f) return '<span class="muted">Not asked</span>';
+  if (f.status === "not_answered") return '<span class="muted">Not answered</span>';
+  if (f.status === "unclear") return '<span style="color:var(--warn)">Unclear — follow up</span>';
+  const spoken = f.spoken && f.spoken !== f.value
+    ? ` <span class="muted" style="font-size:12px">("${esc(f.spoken)}")</span>` : "";
+  return esc(f.value ?? "—") + spoken;
+};
+
+const expRow = (e) => {
+  if (e.status === "not_answered") return '<span class="muted">Not answered</span>';
+  if (e.status === "unclear") return '<span style="color:var(--warn)">Unclear</span>';
+  const y = e.years ?? 0, m = e.months ?? 0;
+  if (!y && !m) return "0";
+  return [y ? `${y}y` : "", m ? `${m}m` : ""].filter(Boolean).join(" ");
+};
+
 async function openCall(id) {
   const c = await api(`/api/calls/${id}`);
-  const cap = c.captured || {};
-  $("d-title").textContent = `${c.phone || "Call"} · ${c.id}`;
+  const cand = c.candidate || { fields: {}, experience: [], operators: [], locations: [] };
+  const f = cand.fields || {};
+  $("d-title").textContent = `${f.name?.value || c.phone || "Call"} · ${c.id}`;
 
   const rows = [
     ["Started", when(c.startedAt)],
     ["Duration", c.durationSec != null ? c.durationSec + "s" : "—"],
     ["Outcome", c.outcome ? c.outcome.replace(/_/g, " ") : "—"],
-    ["Interest", c.interest || "—"],
     ["Reason", c.reason || "—"],
-    ["Homeowner", cap.owner ?? "—"],
-    ["City", cap.city || "—"],
-    ["Monthly bill", cap.monthlyBill ? inr(cap.monthlyBill) : "—"],
-    ["Rooftop", cap.rooftopSqft ? cap.rooftopSqft + " sq ft" : "—"],
-    ["System sized", cap.systemKw ? cap.systemKw + " kW" : "—"],
-    ["Net cost quoted", cap.netCost ? inr(cap.netCost) : "—"],
-    ["Annual savings", cap.annualSavings ? inr(cap.annualSavings) : "—"],
-    ["Booking", c.booking ? `${esc(c.booking.id)} · ${esc(c.booking.slot || "")}` : "—"],
-    ["Exotel status", c.exotelStatus || "—"],
+    ...(c.callbackAt ? [["Callback requested", esc(c.callbackAt)]] : []),
+    ...(c.followUpRequired ? [["⚑ Flag", '<span style="color:var(--warn)">Recruiter follow-up required</span>']] : []),
+    ...FIELD_LABELS.map(([k, label]) => [label, fieldCell(f[k])]),
   ];
+
+  const grouped = {};
+  for (const e of cand.experience || []) (grouped[e.category] ||= []).push(e);
+  const expBlocks = Object.entries(grouped).map(([cat, items]) =>
+    `<h3>${esc(cat)} experience</h3><div class="kv">` +
+    items.map((e) => `<div class="k">${esc(e.item)}</div><div>${expRow(e)}</div>`).join("") +
+    `</div>`).join("");
+
+  const operators = (cand.operators || []).length
+    ? `<h3>Operators</h3><div class="kv">` + cand.operators.map((o) =>
+        `<div class="k">${esc(o.operator)}</div><div>` +
+        [o.years != null ? `${o.years}y` : null, o.months ? `${o.months}m` : null].filter(Boolean).join(" ") +
+        (o.employmentType ? ` · ${esc(o.employmentType.replace(/_/g, " "))}` : "") +
+        (o.partnerName ? ` (${esc(o.partnerName)})` : "") + `</div>`).join("") + `</div>`
+    : "";
+
+  const locations = (cand.locations || []).length
+    ? `<h3>Preferred locations</h3><div class="kv">` + cand.locations.map((l) =>
+        `<div class="k">${esc(l.location)}${l.isHome ? " (home)" : ""}</div>` +
+        `<div>${l.minSalary != null ? inr(l.minSalary) + " min" : '<span class="muted">min not given</span>'}</div>`
+      ).join("") + `</div>`
+    : "";
 
   const transcript = (c.transcript || []).length
     ? c.transcript.map((t) => `<div class="turn ${t.role === "agent" ? "agent" : ""}">
-        <div class="who">${t.role === "agent" ? "Saloni" : "Customer"}</div>
+        <div class="who">${t.role === "agent" ? "Recruiter bot" : "Candidate"}</div>
         <div>${esc(t.text)}</div></div>`).join("")
     : `<div class="muted">No speech recorded — the call was not answered, or nobody spoke.</div>`;
 
@@ -161,6 +216,7 @@ async function openCall(id) {
 
   $("d-body").innerHTML =
     `<div class="kv">${rows.map(([k, v]) => `<div class="k">${k}</div><div>${v}</div>`).join("")}</div>` +
+    expBlocks + operators + locations +
     `<h3>Transcript</h3>${transcript}${tools}`;
   $("detail").showModal();
 }

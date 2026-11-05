@@ -26,7 +26,7 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ ok: true, uptime: process.uptime() }));
+    return res.end(JSON.stringify({ ok: true, uptime: process.uptime(), store: store.storeStatus() }));
   }
 
   // Exotel StatusCallback lands here.
@@ -91,12 +91,21 @@ exotelWss.on("connection", handleExotelStream);
 // Browser demo: 24 kHz both ways, key never leaves the server.
 browserWss.on("connection", (browser) => {
   console.log("[browser] connected");
+  // Give the browser leg a call record too, so mic/scripted sessions are stored and
+  // reviewable in the dashboard exactly like a phone screening.
+  const call = store.createCall({ callSid: `web_${Date.now()}`, phone: null, direction: "browser" });
+  store.updateCall(call.id, { connected: true });
+
   const agent = connectAgent({
     sampleRate: 24000,
+    ctx: { callId: call.id, leadId: null },
     onAudio: (pcm) => {
       if (browser.readyState === browser.OPEN) browser.send(pcm, { binary: true });
     },
     onEvent: (msg) => {
+      if (msg.type === "ConversationText") {
+        store.appendTranscript(call.id, msg.role === "assistant" ? "agent" : "candidate", msg.content);
+      }
       if (msg.type === "Closed") return browser.close();
       if (browser.readyState === browser.OPEN) browser.send(JSON.stringify(msg));
     },
@@ -108,6 +117,11 @@ browserWss.on("connection", (browser) => {
   });
   browser.on("close", () => {
     console.log("[browser] disconnected");
+    const ended = new Date();
+    store.updateCall(call.id, {
+      endedAt: ended.toISOString(),
+      durationSec: Math.round((ended - new Date(call.startedAt)) / 1000),
+    });
     agent.close();
   });
 });

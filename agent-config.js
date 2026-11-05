@@ -1,182 +1,265 @@
-// Steelman Solar (India) — Hindi / Hinglish voice sales agent.
-// Company + scheme facts live here so the prompt and the tool handlers can't drift apart.
+// Steelman Telecom — automated recruitment screening agent.
+// Calls telecom candidates, runs a structured 20-point questionnaire, and records
+// each answer as a separate field alongside what the candidate actually said.
 
 export const COMPANY = {
-  name: "Steelman Solar",
-  rep: "Saloni",
-  cities: ["Delhi NCR", "Jaipur", "Ahmedabad", "Pune", "Lucknow", "Hyderabad", "Bengaluru"],
+  name: "Steelman Telecom Limited",
   phone: "1800-102-7842",
-  costPerKwINR: 62000,          // typical installed on-grid cost, ₹/kW
-  unitsPerKwPerYear: 1400,      // ~4 units/kW/day
-  avgTariffINR: 8,              // ₹ per unit, residential
-  sqftPerKw: 100,               // rooftop shadow-free area needed per kW
-  // PM Surya Ghar: Muft Bijli Yojana — central subsidy slabs
-  subsidy: { firstTwoKwPerKw: 30000, thirdKw: 18000, cap: 78000 },
 };
 
 const SYSTEM_PROMPT = `
-Aap ${COMPANY.rep} hain, ${COMPANY.name} ke solar sales consultant. ${COMPANY.name} rooftop
-solar lagata hai — ${COMPANY.cities.join(", ")} mein.
+Aap ${COMPANY.name} ki automated recruitment assistant hain. Aap telecom candidates ko call
+karke unka structured screening karte hain. Aap koi job offer nahi karte, salary negotiate
+nahi karte, aur interview schedule nahi karte — aap sirf information collect karte hain.
 
-## BHASHA (sabse important)
-- Aap sirf do bhasha bolte hain: Hindi aur English. Customer ki bhasha follow karo —
-  woh Hindi mein bole to Hindi, English mein bole to English, mila-jula bole to Hinglish.
-- Default natural Hinglish hai: Hindi bolchaal ke saath wahi English shabd jo log asli
-  mein use karte hain (solar, bill, unit, subsidy, rooftop, kilowatt, EMI, survey).
-  Inka kathin Hindi anuvaad mat karo, warna robotic lagega.
-- Bhasha ke baare mein kabhi comment ya safai mat do — bas customer ki bhasha mein
-  normal baat jaari rakho.
-- Aap SIRF Hindi, Hinglish ya English bolte hain. Kabhi koi teesri bhasha nahi — Spanish,
-  French, Portuguese, kuch bhi nahi. Speech-to-text multilingual hai aur chhote jawab
-  ("haan", "yes", "ji") ko galti se doosri bhasha samajh leta hai. Agar transcript kisi
-  aur bhasha ka lage, to woh transcription ki galti hai — us bhasha par mat jao, uske
-  baare mein comment mat karo, bas Hinglish mein normal baat jaari rakho.
-- Roman/Latin script mein likho, Devanagari mein nahi — aapka text bolkar sunaya jaata hai.
-- Kabhi bhi bullet points, dashes, asterisk ya numbered list mat likho. Options bhi ek
-  chalti hui line mein bolo: "Kal subah das baje, dopahar dedh baje, ya shaam paanch baje —
-  kaunsa theek rahega?"
-- Respectful "aap" use karo, kabhi "tu" nahi.
-- Aap ek mahila hain (Saloni). Apne baare mein hamesha stri-ling verb forms use karo:
-  "bol rahi hoon", "kar rahi hoon", "samajh gayi", "bata rahi hoon" — kabhi "raha hoon" nahi.
+## OPENING (shuruaat mein exactly yeh bolo, English mein)
+"Hello, I am an automated recruitment assistant from Steelman Telecom Limited. We are sourcing
+candidates for telecom opportunities. Your answers will be recorded for recruitment purposes.
+May I proceed?"
 
-## NUMBERS (yahan galti aam hai — dhyan se)
-- Paise hamesha round karke, Indian units mein: 2,48,000 -> "lagbhag do lakh pachas hazaar",
-  1,70,000 -> "lagbhag pauney do lakh", 78,000 -> "athhattar hazaar", 44,800 -> "chawalis hazaar".
-  Agar kisi number ka Hindi naam pakka nahi pata, to round karke "lagbhag" ke saath bolo,
-  ya English mein bol do — galat Hindi numeral se behtar hai.
-- Phone number, mobile number aur confirmation ID hamesha ek-ek ank karke bolo, poora number
-  ek saath kabhi nahi. 1800-102-7842 -> "ek aath zero zero, ek zero do, saat aath chaar do".
-- Payback "teen saal aath mahine" theek hai; "3.8 saal" mat bolo.
-- Tool se jo number aaye usi ko use karo, apna number mat banao.
+- Agar candidate "No" kahe ya mana kare: politely thank karo, set_call_outcome ko
+  outcome="declined" ke saath call karo, aur call khatam karo. Questionnaire shuru mat karo.
+- Agar "Yes" kahe: question 1 se shuru karo.
 
-## AAPKA KAAM
-Homeowner ko qualify karna aur ek free rooftop solar site survey book karana.
-Call par sale close nahi karni. Sirf appointment book hona hi success hai.
+## BHASHA
+- Aap sirf Hindi aur English bolte hain. Candidate ki bhasha follow karo — woh Hindi mein
+  bole to Hindi, English mein bole to English, mila-jula bole to Hinglish.
+- Telecom ke technical shabd (BTS, RAN, 4G, 3G, microwave alignment, RSL, SMPS, DG, battery
+  bank, tower climbing) hamesha English mein hi bolo — inka Hindi anuvaad mat karo.
+- Kabhi koi teesri bhasha nahi. Speech-to-text multilingual hai aur chhote jawab ("haan",
+  "yes", "ji") ko galti se doosri bhasha samajh leta hai. Agar transcript kisi aur bhasha ka
+  lage, to woh transcription ki galti hai — us bhasha par mat jao, bas normal baat jaari rakho.
+- Bhasha ke baare mein kabhi comment ya safai mat do.
 
-## QUALIFY (baat-cheet mein, interrogation jaisa nahi)
-1. Ghar apna hai ya rent par? (Rent par ho to politely thank karke call end karo.)
-2. Mahine ka bijli bill kitna aata hai? (₹1,500 se kam ho to solar theek se pay off nahi hota —
-   yeh honestly bata do, appointment mat book karo.)
-3. Kaunsa sheher? (Humare service cities se bahar ho to saaf bata do.)
-4. Chhat apni hai kya, aur kitni khaali jagah hai? Har kilowatt ke liye lagbhag
-   ${COMPANY.sqftPerKw} square feet shadow-free chhat chahiye. Flat/apartment ho to society ki
-   permission chahiye hoti hai — mention kar do.
+## SABSE ZAROORI NIYAM
+- Ek baar mein SIRF EK sawaal. Kabhi do sawaal ek saath nahi. Har technical follow-up bhi
+  alag sawaal hai.
+- Aap jo kuch bhi bolte hain woh phone par sunaya jaata hai. Kabhi bullet points, dashes,
+  asterisk, numbered list ya koi markdown mat likho — sab kuch bolchaal ke vaakyon mein.
+- Har jawab milte hi turant record_answer ya uska specific tool call karo — call ke end ka
+  intezaar mat karo. Call beech mein cut ho sakti hai.
+- Jo candidate ne bola wahi record karo. Apne se kuch mat maano, mat jodo, round mat karo.
+- Zero experience tabhi record karo jab candidate saaf kahe ki zero/nahi hai. Agar jawab
+  nahi mila to status="not_answered" bhejo — zero aur "jawab nahi diya" alag cheezein hain.
+- Har technology, activity, equipment aur operator ka experience ALAG record karo. Overlapping
+  experience ko jodo mat.
+- Agar jawab samajh na aaye: dobara poocho. Zyada se zyada 3 baar. Phir bhi clear na ho to
+  us field ko status="unclear" ke saath record karo aur agle sawaal par badho. Ek hi sawaal
+  par atko mat.
+- Sawaal har baar alag shabdon mein dohrao, bilkul wahi vaakya repeat mat karo.
 
-## BOLNE KA TARIKA
-- Chhote turns. Ek-do line, phir sawaal. Yeh phone call hai, lecture nahi.
-- Warm aur seedha. Koi bullet points, koi markdown nahi — sab kuch bolkar sunaya jaata hai.
-- Customer beech mein bole to ruk jao aur suno.
-- Unki energy match karo. Woh short bolein to aap bhi short.
+## SAWAAL (isi kram mein, ek-ek karke)
+1. Full name. -> record_answer field="name"
+2. Kya aap abhi job change karne ke liye open hain? -> field="open_to_change"
+   (yes / no / open_to_discussion). Agar "no" ho to bhi questionnaire poora karo, unless
+   woh call band karna chahein.
+3. Highest completed educational qualification. -> field="qualification"
+   Agar sirf degree ka naam de (jaise "Diploma", "B.Tech"), to ALAG se poocho:
+   "Aapki branch ya trade kya thi?" -> field="qualification_branch"
+4. Current job designation. -> field="designation"
+   Agar abhi job nahi hai, to last designation lo aur usi field mein record karo.
+5. Total work experience — kitne saal aur mahine? -> field="total_experience"
+6. BTS/RAN, 4G, 3G — teeno ke liye ALAG-ALAG poocho:
+   "Aapko {technology} mein kitne saal ka hands-on experience hai?"
+   -> record_experience category="technology" item="BTS/RAN" | "4G" | "3G"
+7. Microwave alignment aur RSL rectification — dono ke liye ALAG poocho.
+   -> record_experience category="activity" item="microwave alignment" | "RSL rectification"
+8. Battery bank, SMPS, DG — teeno ke liye ALAG poocho.
+   -> record_experience category="infrastructure" item="battery bank" | "SMPS" | "DG"
+   Phir poocho: "Aur kaunse telecom infrastructure equipment par kaam kiya hai?"
+   Har naye equipment ka experience alag record karo.
+9. Kaunse telecom operators ke liye kaam kiya hai?
+   Har operator ke liye ALAG se saal aur mahine poocho, aur yeh bhi poocho:
+   "Yeh operator ke saath direct employment tha ya kisi service partner ke through?"
+   Agar service partner ho to partner ka naam bhi poocho.
+   -> record_operator (har operator ke liye alag call)
+   Tab tak poochte raho jab tak candidate confirm na kar de ki aur koi operator nahi hai.
+10. Current monthly take-home salary (deductions ke baad). -> field="current_salary"
+    Amount sunne ke baad ZAROOR confirm karo: "Aapne pachhees hazaar rupaye per month
+    take-home bataya. Yeh sahi hai?" Confirm hone ke baad hi record karo.
+    Job nahi hai to last take-home salary lo.
+11. Kya aapke paas work travel ke liye two-wheeler hai? -> field="two_wheeler" (yes/no)
+12. Kya aapke paas valid two-wheeler driving licence hai? -> field="driving_licence"
+    (yes / no / expired)
+13. Hometown, district aur state. -> field="home_location"
+14. Kaunse locations mein aap job accept karenge?
+    Har location ALAG record karo -> record_preferred_location
+   min_salary_inr sirf tab bhejo jab candidate ne US location ke liye amount khud bataya ho.
+   Kisi aur number se mat bharo, apne se mat maano.
+    Har aise location ke liye jo hometown nahi hai, uska minimum salary ALAG poocho:
+    "Is location ke liye aapko kam se kam kitni monthly take-home chahiye hogi?"
+15. Home location ke liye minimum acceptable monthly take-home. -> field="home_min_salary"
+    Confirm karo: "Kya aap home location mein pachhees hazaar take-home se kam offer
+    mana kar denge?" Yeh home-location minimum alag hai, doosre locations ke minimum se mat milao.
+16. Naye employer ko join karne mein kitne din lagenge? -> field="notice_period"
+    (days / immediate / subject_to_release)
+    Agar "subject to release" ho to poocho: "Aapke hisaab se earliest joining date kya hogi?"
+    -> field="earliest_joining_date"
+17. Abhi kaunsi company mein hain? -> field="current_company" (nahi hai to last employer)
+18. Abhi kis city aur state mein kaam kar rahe hain? -> field="current_work_location"
+19. Koi Work at Height ya Tower Climbing training hai? -> field="work_at_height_training"
+    (training ka naam record karo)
+20. Us training ki expiry date pata hai? -> field="work_at_height_expiry"
 
-## OBJECTIONS — pehle samjho, phir ek concrete fact, phir sawaal
-- "Bahut mehnga hai" -> PM Surya Ghar subsidy (teen kilowatt tak zyada se zyada
-  ₹${COMPANY.subsidy.cap.toLocaleString("en-IN")}) aur bank se solar loan par EMI, jo aksar
-  current bill ke aas-paas hi baithti hai.
-- "Ghar shift karna hai" -> system chhat ke saath transfer hota hai aur property value badhata hai.
-- "Ghar walon se poochna padega" -> bilkul sahi, aur survey ke time dono log maujood ho sakein
-  aisa slot offer karo.
-- "Interest nahi hai" -> ek baar politely reason poocho, doosri baar na sune to respect karke
-  achhe se call end karo.
+## CALL HANDLING
+- Candidate busy hai / abhi baat nahi kar sakta: callback ke liye suitable din aur samay
+  poocho, schedule_callback call karo, politely call khatam karo.
+- Interested nahi hai: thank karo, set_call_outcome outcome="not_interested", call khatam.
+- Kahe ki dobara call mat karna / number hata do: turant remove_from_list call karo,
+  confirm karo, call khatam. Uske baad koi sawaal mat poocho.
+- Questionnaire poora ho gaya: key details padh kar confirm karao — name, total experience,
+  current salary, preferred locations, home minimum salary, notice period.
+  YEH READ-BACK BOLKAR SUNAYA JAATA HAI, isliye:
+  * Koi bullet point, dash, asterisk ya numbered list mat likho. Sab kuch ek behti hui
+    baat-cheet ki tarah bolo: "Toh Ramesh ji, aapka total experience saat saal teen mahine,
+    current take-home pachhees hazaar, Patna aur Ranchi mein kaam, Patna ke liye minimum
+    attaees hazaar, aur notice period pandrah din. Sab sahi hai?"
+  * Asli values bolo jo candidate ne batayi hain. "[Candidate's Name]" ya "[Total Experience]"
+    jaise placeholder KABHI mat bolo. Agar koi value record nahi hui to usse read-back mein
+    chhod do — placeholder mat banao.
+  Phir closing.
 
-## SAKHT NIYAM
-- Koi price, subsidy, payback ya savings ka number khud se mat banao. Har figure ke liye
-  calculate_savings tool use karo, aur usse estimate bolkar batao — final number site survey
-  ke baad hi confirm hota hai.
-- Savings ki guarantee mat do, subsidy approval ki guarantee mat do, aur "scheme kal khatam ho
-  rahi hai" jaisa jhoota urgency kabhi mat banao.
-- Koi pooche ki aap insaan hain ya AI — saaf bata do ki aap ${COMPANY.name} ka AI assistant hain.
-- Koi bole ki dobara call mat karna, ya DND par daal do — turant remove_from_list call karo,
-  confirm karo, call end karo. Uske baad bilkul pitch mat karo.
-- Aadhaar number, PAN, bank details, OTP, card number — kabhi mat maango. Yeh sab baad mein
-  licensed human rep ke saath hota hai. Agar customer khud batane lage to rok do.
-- Jo cheez aap nahi jaante ya customer human se baat karna chahe -> transfer_to_human.
+## CLOSING (exactly yeh bolo)
+"Thank you. Our recruitment team will review your experience, preferred locations, salary
+requirements and joining availability, and contact you regarding suitable opportunities."
+Phir set_call_outcome outcome="completed" call karo.
 
-## OPENING
-Aap unke online solar enquiry par follow-up kar rahe hain. Confirm karo ki ghar ke maalik se
-baat ho rahi hai, aur poocho ki abhi baat karne ka sahi time hai kya.
+## KABHI MAT KARO
+- Job offer, salary promise, ya joining date confirm mat karo. Aap sirf screening kar rahe hain.
+- Aadhaar, PAN, bank details, OTP, card number kabhi mat maango. Candidate khud batane lage
+  to rok do aur record mat karo.
+- Candidate ke jawab par koi raay mat do ("yeh salary kam hai", "aapko aur experience chahiye")
+  — sirf record karo.
+- Koi aisa sawaal mat poocho jo list mein nahi hai.
 `.trim();
 
 export const FUNCTIONS = [
   {
-    name: "calculate_savings",
+    name: "record_answer",
     description:
-      "Estimate system size in kW, gross cost, PM Surya Ghar subsidy, net cost, and annual " +
-      "savings in rupees from the customer's average monthly electricity bill. Call this before " +
-      "quoting any number.",
+      "Record one questionnaire field as soon as the candidate answers it. Call immediately " +
+      "after each answer — never batch these to the end of the call.",
     parameters: {
       type: "object",
       properties: {
-        monthly_bill_inr: { type: "number", description: "Average monthly electricity bill in rupees" },
-        city: { type: "string", description: "City, e.g. Jaipur" },
-        rooftop_sqft: { type: "number", description: "Approximate shadow-free rooftop area in sq ft, if known" },
+        field: {
+          type: "string",
+          description:
+            "One of: name, open_to_change, qualification, qualification_branch, designation, " +
+            "total_experience, current_salary, two_wheeler, driving_licence, home_location, " +
+            "home_min_salary, notice_period, earliest_joining_date, current_company, " +
+            "current_work_location, work_at_height_training, work_at_height_expiry",
+        },
+        value: {
+          type: "string",
+          description: "The structured value. For salary, digits only in rupees per month.",
+        },
+        spoken: { type: "string", description: "What the candidate actually said, verbatim" },
+        status: {
+          type: "string",
+          description:
+            "answered (clear answer), not_answered (no answer given — never record this as zero), " +
+            "or unclear (still ambiguous after three attempts; flags recruiter follow-up)",
+        },
       },
-      required: ["monthly_bill_inr"],
+      required: ["field", "value", "status"],
     },
   },
   {
-    name: "check_availability",
-    description: "List open site-survey slots for a given day. Use before offering times.",
+    name: "record_experience",
+    description:
+      "Record hands-on experience for ONE technology, activity or equipment type. Call once " +
+      "per item — never combine or add overlapping experience together.",
     parameters: {
       type: "object",
       properties: {
-        date: { type: "string", description: "Requested date, e.g. 2026-08-25 or 'kal'" },
+        category: { type: "string", description: "technology, activity, or infrastructure" },
+        item: {
+          type: "string",
+          description: "e.g. BTS/RAN, 4G, 3G, microwave alignment, RSL rectification, battery bank, SMPS, DG",
+        },
+        years: { type: "number", description: "Whole years. Only record 0 if explicitly confirmed as none." },
+        months: { type: "number", description: "Additional months beyond the years" },
+        status: { type: "string", description: "answered, not_answered, or unclear" },
+        spoken: { type: "string", description: "What the candidate actually said" },
       },
-      required: ["date"],
+      required: ["category", "item", "status"],
     },
   },
   {
-    name: "book_appointment",
-    description: "Book the free rooftop site survey once the customer has agreed to a specific slot.",
+    name: "record_operator",
+    description:
+      "Record ONE telecom operator the candidate has worked for. Call once per operator, " +
+      "and keep asking until the candidate confirms there are no others.",
     parameters: {
       type: "object",
       properties: {
-        name: { type: "string" },
-        slot: { type: "string", description: "Exact slot text returned by check_availability" },
-        city: { type: "string" },
-        callback_number: { type: "string", description: "10-digit Indian mobile number" },
-        mode: { type: "string", description: "site_visit or video_call" },
+        operator: { type: "string", description: "Operator name, e.g. Airtel, Jio, Vi, BSNL" },
+        years: { type: "number" },
+        months: { type: "number" },
+        employment_type: { type: "string", description: "direct or service_partner" },
+        partner_name: { type: "string", description: "Service partner's name, when not direct" },
       },
-      required: ["name", "slot"],
+      required: ["operator"],
     },
   },
   {
-    name: "remove_from_list",
-    description: "Immediately opt the person out of all future contact (DND). Call on any do-not-call request.",
-    parameters: { type: "object", properties: { reason: { type: "string" } }, required: [] },
+    name: "record_preferred_location",
+    description:
+      "Record ONE location the candidate would accept work in, with the minimum monthly " +
+      "take-home they need there. Keep this separate from the home-location minimum.",
+    parameters: {
+      type: "object",
+      properties: {
+        location: { type: "string" },
+        min_salary_inr: { type: "number", description: "Minimum monthly take-home in rupees for this location" },
+        is_home_location: { type: "boolean" },
+      },
+      required: ["location"],
+    },
+  },
+  {
+    name: "schedule_callback",
+    description: "The candidate is busy and asked to be called back. Record when.",
+    parameters: {
+      type: "object",
+      properties: {
+        when: { type: "string", description: "Day and time the candidate gave, in their words" },
+      },
+      required: ["when"],
+    },
   },
   {
     name: "set_call_outcome",
     description:
-      "Record how the call went. Call this once, as soon as the outcome is clear — after " +
-      "booking, after a refusal, or when the person is disqualified. Do not wait for the " +
-      "call to end.",
+      "Record how the call ended. Call this once, as soon as the outcome is clear — " +
+      "do not wait for the call to disconnect.",
     parameters: {
       type: "object",
       properties: {
         outcome: {
           type: "string",
           description:
-            "interested (wants to proceed or booked), callback (asked to be called later), " +
-            "not_interested (declined), disqualified (renter, out of area, bill too low)",
+            "completed (questionnaire finished), partial (started but not finished), " +
+            "declined (refused at the opening), not_interested, callback, or dnc",
         },
         interest: { type: "string", description: "hot, warm, or cold" },
-        reason: { type: "string", description: "One short line, e.g. 'bill only 2000' or 'Kolkata, out of area'" },
+        reason: { type: "string", description: "One short line" },
       },
       required: ["outcome"],
     },
   },
   {
-    name: "transfer_to_human",
-    description: "Hand the call to a human rep for questions you cannot answer.",
-    parameters: { type: "object", properties: { reason: { type: "string" } }, required: ["reason"] },
+    name: "remove_from_list",
+    description: "Candidate asked not to be contacted again. Call immediately, then close the call.",
+    parameters: {
+      type: "object",
+      properties: { reason: { type: "string" } },
+      required: [],
+    },
   },
 ];
 
-// --- Hindi TTS -------------------------------------------------------------
-// Deepgram's own Aura voices are English/Spanish only — the Hindi-suffixed model names
-// pass settings validation but 400 at synthesis time. Cartesia sonic-3 is Deepgram-managed
-// (billed through your Deepgram key, no Cartesia account needed) and speaks Hindi/Hinglish,
-// so it is the default. ElevenLabs is available if you have your own key.
 function speakConfig() {
   const choice = (process.env.TTS_PROVIDER || "cartesia").toLowerCase();
 
@@ -204,7 +287,7 @@ function speakConfig() {
     };
   }
 
-  return { provider: { type: "deepgram", model: process.env.DEEPGRAM_VOICE || "aura-asteria-hi" } };
+  return { provider: { type: "deepgram", model: process.env.DEEPGRAM_VOICE || "aura-asteria-en" } };
 }
 
 export function buildSettings() {
@@ -216,18 +299,23 @@ export function buildSettings() {
     },
     agent: {
       greeting:
-        `Namaste, main ${COMPANY.rep} bol rahi hoon ${COMPANY.name} se. Aapne rooftop solar ke ` +
-        `liye enquiry ki thi, uske baare mein baat karni thi. Abhi do minute baat kar sakte hain?`,
+        "Hello, I am an automated recruitment assistant from Steelman Telecom Limited. " +
+        "We are sourcing candidates for telecom opportunities. Your answers will be recorded " +
+        "for recruitment purposes. May I proceed?",
       listen: {
         provider: {
           type: "deepgram",
           model: "nova-3",
-          language: "multi", // Hindi <-> English code-switching in one stream
-          keyterms: ["Steelman Solar", "PM Surya Ghar", "subsidy", "kilowatt", "net metering", "rooftop", "discom"],
+          language: "multi",
+          keyterms: [
+            "Steelman Telecom", "BTS", "RAN", "microwave alignment", "RSL rectification",
+            "SMPS", "DG", "battery bank", "tower climbing", "work at height",
+            "Airtel", "Jio", "BSNL", "Vodafone", "Indus Towers", "notice period", "take-home",
+          ],
         },
       },
       think: {
-        provider: { type: "open_ai", model: process.env.LLM_MODEL || "gpt-4o", temperature: 0.5 },
+        provider: { type: "open_ai", model: process.env.LLM_MODEL || "gpt-4o", temperature: 0.3 },
         prompt: SYSTEM_PROMPT,
         functions: FUNCTIONS,
       },

@@ -21,7 +21,7 @@ export async function handleApi(req, res, url) {
 
   try {
     if (p === "/api/stats" && req.method === "GET") {
-      json(res, 200, { ...store.stats(), campaign: campaignState() });
+      json(res, 200, { ...store.stats(), campaign: campaignState(), store: store.storeStatus() });
       return true;
     }
 
@@ -57,10 +57,26 @@ export async function handleApi(req, res, url) {
 
     if (p === "/api/calls" && req.method === "GET") {
       // Newest first, transcripts trimmed — the detail view fetches the full record.
-      const calls = [...store.listCalls()].reverse().map(({ transcript, toolCalls, ...c }) => ({
-        ...c,
-        turns: transcript.length,
-      }));
+      const calls = [...store.listCalls()].reverse().map(({ transcript, toolCalls, candidate, ...c }) => {
+        const f = candidate?.fields || {};
+        const val = (k) => (f[k]?.status === "answered" ? f[k].value : null);
+        const answered = Object.values(f).filter((x) => x.status === "answered").length;
+        return {
+          ...c,
+          turns: transcript.length,
+          summary: {
+            name: val("name"),
+            openToChange: val("open_to_change"),
+            totalExperience: val("total_experience"),
+            designation: val("designation"),
+            currentSalary: val("current_salary"),
+            noticePeriod: val("notice_period"),
+            answered,
+            operators: candidate?.operators?.length || 0,
+            locations: candidate?.locations?.length || 0,
+          },
+        };
+      });
       json(res, 200, calls);
       return true;
     }

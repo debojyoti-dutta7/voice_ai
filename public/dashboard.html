@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Steelman Solar — Call Dashboard</title>
+<title>Steelman Telecom — Recruitment Screening</title>
 <style>
   :root { color-scheme: dark;
     --bg:#0e1116; --panel:#151921; --panel2:#1b202a; --line:#262c36;
@@ -49,10 +49,11 @@
   tr.click:hover { background:var(--panel2); }
 
   .pill { display:inline-block; padding:2px 9px; border-radius:99px; font-size:11.5px; font-weight:600; white-space:nowrap; }
-  .p-interested,.p-done,.p-hot { background:#12301f; color:var(--ok); }
-  .p-callback,.p-calling,.p-warm { background:#332711; color:var(--warn); }
-  .p-not_interested,.p-failed,.p-dnc,.p-cold { background:#331717; color:var(--bad); }
-  .p-disqualified,.p-pending { background:#1e2530; color:var(--dim); }
+  .p-completed,.p-done,.p-hot,.p-yes { background:#12301f; color:var(--ok); }
+  .p-callback,.p-calling,.p-warm,.p-partial,.p-open_to_discussion { background:#332711; color:var(--warn); }
+  .p-not_interested,.p-failed,.p-dnc,.p-cold,.p-declined,.p-no { background:#331717; color:var(--bad); }
+  .p-connected,.p-pending { background:#1e2530; color:var(--dim); }
+  .flag { color:var(--warn); font-size:11px; }
   .p-no_answer { background:#1e2530; color:var(--dim); }
 
   .muted { color:var(--dim); }
@@ -80,7 +81,7 @@
 <body>
 <header>
   <div class="sun"></div>
-  <h1>Steelman Solar — Call Dashboard</h1>
+  <h1>Steelman Telecom — Recruitment Screening</h1>
   <div class="spacer"></div>
   <span id="campaign-status" class="muted"><span class="dot"></span>idle</span>
   <button id="btn-start">Start campaign</button>
@@ -98,8 +99,9 @@
 
   <section id="tab-calls">
     <div class="wrap"><table>
-      <thead><tr><th>When</th><th>Phone</th><th>Name</th><th>Outcome</th><th>Interest</th>
-        <th>City</th><th>Bill</th><th>System</th><th>Booked</th><th>Dur</th><th>Turns</th></tr></thead>
+      <thead><tr><th>When</th><th>Phone</th><th>Candidate</th><th>Outcome</th><th>Open to move</th>
+        <th>Experience</th><th>Designation</th><th>Salary</th><th>Notice</th>
+        <th>Answered</th><th>Dur</th></tr></thead>
       <tbody id="calls-body"></tbody>
     </table></div>
   </section>

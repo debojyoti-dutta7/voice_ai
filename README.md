@@ -1,7 +1,32 @@
-# Steelman Solar — Hindi/Hinglish Voice Sales Agent
+# Steelman Telecom — Recruitment Screening Voice Agent
 
-A Deepgram Voice Agent that cold-calls Indian homeowners about rooftop solar, qualifies them,
-quotes a PM Surya Ghar-adjusted estimate, and books a free site survey.
+A Deepgram Voice Agent that calls telecom candidates in India, runs a structured 20-point
+screening questionnaire in Hindi/English, and records every answer as a separate field
+alongside what the candidate actually said.
+
+## The questionnaire
+
+Asked strictly one question at a time, in order: name, openness to change, qualification
+(plus branch/trade as a separate follow-up), designation, total experience, per-technology
+experience (BTS/RAN, 4G, 3G asked separately), activities (microwave alignment, RSL
+rectification), infrastructure (battery bank, SMPS, DG, plus anything else), every operator
+with years and direct-vs-service-partner, current take-home, two-wheeler, licence, home
+location, preferred locations each with their own minimum salary, home-location minimum,
+notice period, current company, current work location, and Work at Height training with expiry.
+
+### Recording rules that the prompt enforces
+
+- **"Not answered" never collapses into zero.** Every field carries a `status` of
+  `answered` / `not_answered` / `unclear`; zero is recorded only when explicitly confirmed.
+- **Nothing is batched to the end.** Each answer is written the moment it is given, so a
+  call that drops mid-questionnaire keeps everything up to that point.
+- **Overlapping experience is never summed.** Each technology, activity, equipment and
+  operator is a separate record.
+- **Salary is read back aloud** before it counts, and the home-location minimum is confirmed
+  separately from per-location minimums.
+- **The spoken answer is kept** next to the structured value, so a recruiter can audit any field.
+- **Three attempts, then move on.** A field still unclear after three re-asks is marked
+  `unclear` and the call is flagged "Recruiter follow-up required" rather than stalling.
 
 ## Run it
 
