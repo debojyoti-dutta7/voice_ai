@@ -115,9 +115,12 @@ CARTESIA_VOICE_ID=<voice id>   # pick a Hindi voice from Cartesia's library
 `http://localhost:3000` — upload leads, run a campaign, review every call.
 (The browser mic demo moved to `/demo`.)
 
-- **Upload** — paste CSV or pick a file. Columns `name, phone, city, notes`; the header row is
-  detected, and a headerless file works if column one is a phone number. Numbers may be
-  10-digit, `0`-prefixed or `+91`. Duplicates and invalid numbers are skipped and reported.
+- **Upload** — drop in an **.xlsx / .xls** workbook (first sheet) or a CSV, or paste rows.
+  Nothing needs reformatting first: the importer anchors on the first row containing a phone
+  number, treats the row above it as the header, and falls back to picking whichever column
+  actually holds mobile numbers. Title rows, blank rows, missing headers, unfamiliar header
+  names, extra columns, numeric cells, formulas and `+91`/`0`-prefixed numbers all work.
+  Duplicates and non-mobile numbers are skipped and reported with an example.
 - **Campaign** — Start works the pending queue one lead at a time, polling Exotel for each
   outcome so no-answer and busy are recorded too, not just connected calls. Per-lead
   "Call now" dials outside the queue.

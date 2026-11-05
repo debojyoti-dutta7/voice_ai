@@ -263,14 +263,17 @@ $("btn-del-selected").addEventListener("click", async () => {
 });
 $("btn-stop").addEventListener("click", async () => { await api("/api/campaign/stop", { method: "POST" }); refresh(); });
 
-async function importCsv(text) {
-  if (!text.trim()) return;
-  const r = await api("/api/leads", { method: "POST", headers: { "Content-Type": "text/csv" }, body: text });
+async function importRows(body, contentType) {
+  const r = await api("/api/leads", { method: "POST", headers: { "Content-Type": contentType }, body });
   const msg = $("import-msg");
+
+  const src = r.source
+    ? ` <span class="muted">(sheet "${esc(r.source.sheet)}"${r.source.sheetCount > 1 ? ` of ${r.source.sheetCount}` : ""}, ${r.source.rowsRead} rows)</span>`
+    : "";
 
   if (!r.added.length && !r.skipped.length) {
     msg.innerHTML = `<span style="color:var(--bad)">Nothing imported — no phone column found.</span>
-      Include a column of 10-digit Indian mobile numbers.`;
+      Include a column of 10-digit Indian mobile numbers.${src}`;
     return;
   }
 
@@ -283,14 +286,26 @@ async function importCsv(text) {
 
   msg.innerHTML =
     `<span style="color:${r.added.length ? "var(--ok)" : "var(--bad)"}">Added ${r.added.length}</span>` +
-    (detail ? ` · skipped ${r.skipped.length}: ${detail}` : "");
+    (detail ? ` · skipped ${r.skipped.length}: ${detail}` : "") + src;
   if (r.added.length) $("csv").value = "";
   refresh();
 }
+
+const importCsv = (text) => (text.trim() ? importRows(text, "text/csv") : undefined);
 $("btn-import").addEventListener("click", () => importCsv($("csv").value));
 $("file").addEventListener("change", async (e) => {
   const f = e.target.files[0];
-  if (f) importCsv(await f.text());
+  if (f) {
+    $("import-msg").textContent = `Reading ${f.name}…`;
+    const excel = /\.(xlsx|xlsm|xls)$/i.test(f.name);
+    if (excel) {
+      // Send the workbook as bytes; the server reads the first sheet.
+      await importRows(await f.arrayBuffer(),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    } else {
+      await importCsv(await f.text());
+    }
+  }
   e.target.value = "";
 });
 

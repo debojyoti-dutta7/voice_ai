@@ -1,4 +1,5 @@
 // REST API behind the dashboard.
+import ExcelJS from "exceljs";
 import * as store from "./store.js";
 import { startCampaign, stopCampaign, campaignState, dialLead } from "./campaign.js";
 
@@ -7,12 +8,42 @@ const json = (res, code, body) => {
   res.end(JSON.stringify(body));
 };
 
+// Collected as Buffers, not a string: an .xlsx is binary and string concatenation
+// would corrupt it.
 const readBody = (req) =>
   new Promise((resolve) => {
-    let b = "";
-    req.on("data", (d) => (b += d));
-    req.on("end", () => resolve(b));
+    const chunks = [];
+    req.on("data", (d) => chunks.push(d));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
   });
+
+// .xlsx is a zip; every one starts with "PK\x03\x04".
+const isXlsx = (buf) =>
+  buf.length > 4 && buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;
+
+async function rowsFromWorkbook(buf) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const sheet = wb.worksheets[0];
+  if (!sheet) return { rows: [], sheetName: null, sheetCount: 0 };
+
+  const rows = [];
+  sheet.eachRow({ includeEmpty: false }, (row) => {
+    // row.values is 1-indexed with a leading hole; cells may be rich text or formulas.
+    const cells = (row.values || []).slice(1).map((v) => {
+      if (v == null) return "";
+      if (typeof v === "object") {
+        if (v.text) return v.text;
+        if (v.result != null) return String(v.result);
+        if (v.richText) return v.richText.map((t) => t.text).join("");
+        return "";
+      }
+      return v;
+    });
+    rows.push(cells);
+  });
+  return { rows, sheetName: sheet.name, sheetCount: wb.worksheets.length };
+}
 
 /** Returns true if it handled the request. */
 export async function handleApi(req, res, url) {
@@ -33,14 +64,20 @@ export async function handleApi(req, res, url) {
     if (p === "/api/leads" && req.method === "POST") {
       const body = await readBody(req);
       const ct = req.headers["content-type"] || "";
-      let rows;
-      if (ct.includes("application/json")) {
-        const parsed = JSON.parse(body || "[]");
+      let rows, source = null;
+
+      if (isXlsx(body)) {
+        const { rows: grid, sheetName, sheetCount } = await rowsFromWorkbook(body);
+        rows = store.rowsToLeads(grid);
+        source = { type: "xlsx", sheet: sheetName, sheetCount, rowsRead: grid.length };
+      } else if (ct.includes("application/json")) {
+        const parsed = JSON.parse(body.toString("utf8") || "[]");
         rows = Array.isArray(parsed) ? parsed : [parsed];
       } else {
-        rows = store.parseCsv(body);
+        rows = store.parseCsv(body.toString("utf8"));
       }
-      json(res, 200, store.addLeads(rows));
+
+      json(res, 200, { ...store.addLeads(rows), source });
       return true;
     }
 

@@ -392,22 +392,43 @@ export function parseCsv(text) {
     else if (ch !== "\r") field += ch;
   }
   if (field || row.length) { row.push(field); rows.push(row); }
+  return rowsToLeads(rows);
+}
+
+/**
+ * Turn a grid of cells into lead rows. Shared by the CSV and Excel paths: the phone
+ * column is found by content, so unusual headers, a missing header row and extra
+ * columns all work the same either way.
+ */
+export function rowsToLeads(rows) {
+  rows = (rows || []).filter((r) => Array.isArray(r) && r.some((c) => String(c ?? "").trim()));
   if (!rows.length) return [];
 
-  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const cell = (r, i) => String(r?.[i] ?? "").trim();
+  const rowHasPhone = (r) => (r || []).some((c) => normalizePhone(c));
+
+  // Real exports often carry a title row, a blank row, then the header. Anchor on data:
+  // the first row containing a phone number is the first candidate, and the row above it
+  // is the header — unless that row is itself data, in which case there is no header.
+  const firstDataRow = rows.findIndex(rowHasPhone);
+  if (firstDataRow === -1) return [];
+
+  const header = firstDataRow > 0 ? rows[firstDataRow - 1] : [];
+  const body = rows.slice(firstDataRow);
+
+  const names = header.map((h) => String(h ?? "").trim().toLowerCase());
   const has = (h, ...words) => words.some((w) => h.replace(/[\s_-]/g, "").includes(w));
-  const idx = (...words) => header.findIndex((h) => has(h, ...words));
+  const idx = (...words) => names.findIndex((h) => has(h, ...words));
 
   let iPhone = idx("phone", "mobile", "number", "contact", "cell", "whatsapp", "msisdn");
-  const iName = idx("name", "customer", "lead", "client");
+  const iName = idx("name", "customer", "lead", "client", "candidate", "applicant", "person");
   const iCity = idx("city", "location", "town", "area");
   const iNotes = idx("note", "remark", "comment");
 
-  const looksHeaderless = rows[0].some((c) => normalizePhone(c));
-  const body = looksHeaderless ? rows : rows.slice(1);
-
-  if (iPhone === -1) {
-    const width = Math.max(...rows.map((r) => r.length));
+  // A header may be missing or named something we do not recognise. Decide by content:
+  // the column where most rows hold an Indian mobile number.
+  if (iPhone === -1 || !body.some((r) => normalizePhone(r[iPhone]))) {
+    const width = Math.max(...body.map((r) => r.length));
     let best = -1, bestHits = 0;
     for (let col = 0; col < width; col++) {
       const hits = body.filter((r) => normalizePhone(r[col])).length;
@@ -417,11 +438,12 @@ export function parseCsv(text) {
   }
   if (iPhone === -1) return [];
 
-  const pick = (r, i) => (i >= 0 && i !== iPhone ? (r[i] || "").trim() : "");
-  return body.filter((r) => r.some((c) => c.trim())).map((r) => ({
+  const pick = (r, i) => (i >= 0 && i !== iPhone ? cell(r, i) : "");
+  return body.map((r) => ({
     phone: r[iPhone],
     name: pick(r, iName),
     city: pick(r, iCity),
     notes: pick(r, iNotes),
   }));
 }
+

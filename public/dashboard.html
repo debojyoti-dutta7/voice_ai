@@ -121,8 +121,9 @@
   </section>
 
   <section id="tab-upload" hidden>
-    <div class="bar"><strong>Paste CSV or upload a file</strong></div>
+    <div class="bar"><strong>Upload an Excel sheet or CSV — or paste rows below</strong></div>
     <p class="muted" style="margin-top:0">
+      <strong>.xlsx</strong>, .xls and .csv are all accepted (the first sheet is read).
       A column of 10-digit Indian mobile numbers is all that is required — the phone column is
       found by content, so unusual header names, a missing header row, or extra columns are all
       fine. <code>name</code>, <code>city</code> and <code>notes</code> are picked up when present.
@@ -132,7 +133,7 @@
     <textarea id="csv" placeholder="name,phone,city&#10;Ankur,6294035244,Kolkata&#10;Rohit,9871606366,Delhi"></textarea>
     <div class="bar" style="margin-top:12px">
       <button id="btn-import">Import leads</button>
-      <input type="file" id="file" accept=".csv,text/csv" />
+      <input type="file" id="file" accept=".xlsx,.xlsm,.xls,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
       <span id="import-msg" class="muted"></span>
     </div>
   </section>
