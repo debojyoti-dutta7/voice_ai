@@ -138,9 +138,14 @@ skips it permanently.
 
 ### Storage
 
-MongoDB. Set `MONGO_URI` and `MONGO_DB` (default `AI`). Collections are namespaced
-`solar_leads` and `solar_calls`, since the `AI` database is shared with other applications.
-An existing `data/store.json` is imported once on first boot and renamed `.migrated`.
+MongoDB Atlas. Set `MONGO_URI` and `MONGO_DB` (default `Recruitment_agent`); collections are
+`candidates` and `calls`. An existing `data/store.json` is imported once on first boot and
+renamed `.migrated`.
+
+If Mongo is unreachable the server still starts: it runs on the in-memory mirror, queues
+writes, retries every 15s, and flushes on reconnect. A database outage must not mean the
+agent cannot take calls — but note that queued writes live only in memory, so a restart
+before Mongo returns loses them.
 
 [store.js](store.js) keeps documents in Mongo *and* in memory. The in-memory mirror is not
 an optimisation: the call bridge and tool handlers run inside Deepgram's function-call path,

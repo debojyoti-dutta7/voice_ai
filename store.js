@@ -9,9 +9,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DB_NAME = process.env.MONGO_DB || "AI";
-const LEADS = "solar_leads"; // namespaced: the AI database is shared
-const CALLS = "solar_calls";
+const DB_NAME = process.env.MONGO_DB || "Recruitment_agent";
+const LEADS = process.env.MONGO_CANDIDATES_COLLECTION || "candidates";
+const CALLS = process.env.MONGO_CALLS_COLLECTION || "calls";
 
 let client = null;
 let leadsCol = null;

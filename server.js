@@ -136,7 +136,7 @@ process.on("uncaughtException", (e) => console.error("[uncaughtException]", e));
 await store.init();
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Steelman Solar agent`);
+  console.log(`Steelman Telecom recruitment agent`);
   console.log(`  dashboard     -> http://localhost:${PORT}`);
   console.log(`  mic demo      -> http://localhost:${PORT}/demo`);
   console.log(`  exotel stream -> ws://localhost:${PORT}/exotel-stream`);
