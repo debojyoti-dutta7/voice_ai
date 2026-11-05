@@ -182,7 +182,12 @@ export const normalizePhone = (raw) => {
 };
 
 // --- leads -----------------------------------------------------------------
-export function addLeads(rows) {
+export async function addLeads(rows) {
+  if (!ready || !leadsCol) {
+    const err = new Error(`MongoDB is disconnected; leads were not saved. ${lastError || ""}`.trim());
+    err.statusCode = 503;
+    throw err;
+  }
   const added = [], skipped = [];
   for (const row of rows) {
     const phone = normalizePhone(row.phone);
@@ -197,8 +202,17 @@ export function addLeads(rows) {
       status: "pending", attempts: 0, lastCallId: null,
       createdAt: new Date().toISOString(),
     };
+    try {
+      await leadsCol.replaceOne({ id: lead.id }, lead, { upsert: true });
+    } catch (cause) {
+      ready = false;
+      lastError = cause.message;
+      scheduleRetry();
+      const err = new Error(`MongoDB write failed; lead ${phone} was not saved: ${cause.message}`);
+      err.statusCode = 503;
+      throw err;
+    }
     mem.leads.push(lead);
-    mirror(leadsCol, lead);
     added.push(lead);
   }
   return { added, skipped };
@@ -378,6 +392,21 @@ export function stats() {
 
 /** Minimal CSV parser — quoted fields, optional header, phone column found by content. */
 export function parseCsv(text) {
+  // Clipboard pastes and regional spreadsheet exports may use tabs or semicolons.
+  text = String(text ?? "").replace(/^\uFEFF/, "");
+  const candidates = [",", "\t", ";"];
+  const sample = text.split(/\r?\n/).filter((line) => line.trim()).slice(0, 8).join("\n");
+  const counts = new Map(candidates.map((separator) => [separator, 0]));
+  let quoted = false;
+  for (let i = 0; i < sample.length; i++) {
+    const ch = sample[i];
+    if (ch === '"' && quoted && sample[i + 1] === '"') { i++; continue; }
+    if (ch === '"') quoted = !quoted;
+    else if (!quoted && counts.has(ch)) counts.set(ch, counts.get(ch) + 1);
+  }
+  const delimiter = candidates.reduce((best, separator) =>
+    counts.get(separator) > counts.get(best) ? separator : best, ",");
+
   const rows = [];
   let field = "", row = [], inQuotes = false;
   for (let i = 0; i < text.length; i++) {
@@ -387,7 +416,7 @@ export function parseCsv(text) {
       else if (ch === '"') inQuotes = false;
       else field += ch;
     } else if (ch === '"') inQuotes = true;
-    else if (ch === ",") { row.push(field); field = ""; }
+    else if (ch === delimiter) { row.push(field); field = ""; }
     else if (ch === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
     else if (ch !== "\r") field += ch;
   }
@@ -421,9 +450,9 @@ export function rowsToLeads(rows) {
   const idx = (...words) => names.findIndex((h) => has(h, ...words));
 
   let iPhone = idx("phone", "mobile", "number", "contact", "cell", "whatsapp", "msisdn");
-  const iName = idx("name", "customer", "lead", "client", "candidate", "applicant", "person");
-  const iCity = idx("city", "location", "town", "area");
-  const iNotes = idx("note", "remark", "comment");
+  let iName = idx("name", "customer", "lead", "client", "candidate", "applicant", "person");
+  let iCity = idx("city", "location", "town", "area");
+  let iNotes = idx("note", "remark", "comment");
 
   // A header may be missing or named something we do not recognise. Decide by content:
   // the column where most rows hold an Indian mobile number.
@@ -437,6 +466,19 @@ export function rowsToLeads(rows) {
     if (best >= 0 && bestHits >= Math.max(1, Math.floor(body.length / 2))) iPhone = best;
   }
   if (iPhone === -1) return [];
+
+  // Headerless paste rows follow the documented order: name, phone, city, notes.
+  // The phone column is still detected by its contents, so this also works when
+  // phone is first or last in the row.
+  if (firstDataRow === 0) {
+    const available = Array.from({ length: Math.max(...body.map((r) => r.length)) }, (_, i) => i)
+      .filter((i) => i !== iPhone);
+    if (iName === -1) iName = available.shift() ?? -1;
+    else available.splice(available.indexOf(iName), 1);
+    if (iCity === -1) iCity = available.shift() ?? -1;
+    else available.splice(available.indexOf(iCity), 1);
+    if (iNotes === -1) iNotes = available.shift() ?? -1;
+  }
 
   const pick = (r, i) => (i >= 0 && i !== iPhone ? cell(r, i) : "");
   return body.map((r) => ({

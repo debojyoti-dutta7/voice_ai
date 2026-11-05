@@ -8,6 +8,24 @@ const json = (res, code, body) => {
   res.end(JSON.stringify(body));
 };
 
+const leadField = (row, aliases) => {
+  const fields = Object.entries(row && typeof row === "object" ? row : {})
+    .map(([key, value]) => [key.toLowerCase().replace(/[^a-z0-9]/g, ""), value]);
+  for (const alias of aliases) {
+    const value = fields.find(([key]) => key === alias)?.[1];
+    if (value != null && String(value).trim()) return value;
+  }
+  return "";
+};
+
+const normalizeLeadRow = (row) => ({
+  ...row,
+  name: leadField(row, ["name", "fullname", "leadname", "candidatename", "customername"]),
+  phone: leadField(row, ["phone", "phonenumber", "mobile", "mobilenumber", "contactnumber"]),
+  city: leadField(row, ["city", "cityname", "location", "currentcity", "town", "area"]),
+  notes: leadField(row, ["notes", "note", "remarks", "comment"]),
+});
+
 // Collected as Buffers, not a string: an .xlsx is binary and string concatenation
 // would corrupt it.
 const readBody = (req) =>
@@ -72,12 +90,15 @@ export async function handleApi(req, res, url) {
         source = { type: "xlsx", sheet: sheetName, sheetCount, rowsRead: grid.length };
       } else if (ct.includes("application/json")) {
         const parsed = JSON.parse(body.toString("utf8") || "[]");
-        rows = Array.isArray(parsed) ? parsed : [parsed];
+        rows = (Array.isArray(parsed) ? parsed : [parsed]).map(normalizeLeadRow);
+      } else if (ct.includes("application/x-www-form-urlencoded")) {
+        const form = Object.fromEntries(new URLSearchParams(body.toString("utf8")));
+        rows = [normalizeLeadRow(form)];
       } else {
         rows = store.parseCsv(body.toString("utf8"));
       }
 
-      json(res, 200, { ...store.addLeads(rows), source });
+      json(res, 200, { ...await store.addLeads(rows), source });
       return true;
     }
 
@@ -143,7 +164,7 @@ export async function handleApi(req, res, url) {
     return true;
   } catch (err) {
     console.error("[api]", err);
-    json(res, 500, { error: err.message });
+    json(res, err.statusCode || 500, { error: err.message });
     return true;
   }
 }
