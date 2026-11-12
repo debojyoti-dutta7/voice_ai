@@ -1,0 +1,53 @@
+# Self-hosted GitLab CE + Runner on DigitalOcean.
+# Run on a dedicated droplet (4GB+ RAM recommended) OR a second droplet.
+#
+#   cd gitlab && docker compose -f docker-compose.gitlab.yml up -d
+#
+# First boot takes 3–5 minutes. Then open https://GITLAB_DOMAIN
+
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:17.5.1-ce.0
+    container_name: gitlab
+    restart: unless-stopped
+    hostname: ${GITLAB_DOMAIN:-gitlab.example.com}
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'https://${GITLAB_DOMAIN:-gitlab.example.com}'
+        letsencrypt['enable'] = true
+        letsencrypt['contact_emails'] = ['${GITLAB_LETSENCRYPT_EMAIL:-admin@example.com}']
+        # Container Registry (needed by .gitlab-ci.yml build stage)
+        registry_external_url 'https://registry.${GITLAB_DOMAIN:-gitlab.example.com}'
+        gitlab_rails['registry_enabled'] = true
+        # Keep memory footprint reasonable on a 4GB droplet
+        puma['worker_processes'] = 2
+        sidekiq['max_concurrency'] = 10
+        prometheus_monitoring['enable'] = false
+    ports:
+      - "80:80"
+      - "443:443"
+      - "22:22"
+    volumes:
+      - gitlab_config:/etc/gitlab
+      - gitlab_logs:/var/log/gitlab
+      - gitlab_data:/var/opt/gitlab
+    shm_size: "256m"
+
+  gitlab-runner:
+    image: gitlab/gitlab-runner:v17.5.1
+    container_name: gitlab-runner
+    restart: unless-stopped
+    depends_on:
+      - gitlab
+    volumes:
+      - runner_config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # Register after GitLab is up — see setup-runner.sh
+      CI_SERVER_URL: "https://${GITLAB_DOMAIN:-gitlab.example.com}"
+
+volumes:
+  gitlab_config:
+  gitlab_logs:
+  gitlab_data:
+  runner_config:

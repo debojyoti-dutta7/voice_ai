@@ -1,0 +1,19 @@
+# Production stack on the DigitalOcean droplet.
+# Image is pulled from the self-hosted GitLab Container Registry by CI.
+
+services:
+  app:
+    image: voice-ai:current
+    container_name: voice-ai
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "3006:3006"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3006/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
