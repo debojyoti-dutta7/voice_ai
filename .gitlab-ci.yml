@@ -1,22 +1,18 @@
-# 2-day showcase pipeline (GitLab.com + self-hosted Runner on DigitalOcean).
-# Uses Docker socket (not DinD) to save RAM on a 4GB droplet.
-
 stages:
-  - validate
+  - test
   - build
+  - scan
   - deploy
-  - verify
+  - smoke
 
 variables:
   APP_NAME: voice-ai
-  IMAGE_TAG: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
-  IMAGE_LATEST: $CI_REGISTRY_IMAGE:latest
   DEPLOY_PATH: /opt/voice_ai
-  # Socket mount is configured on the runner (see gitlab/2DAY-DEMO.md)
+  IMAGE: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO
 
-# ── Validate ────────────────────────────────────────────────────────────────
-lint:
-  stage: validate
+# basic syntax check — we don't have a real unit test suite yet
+syntax:
+  stage: test
   image: node:22-alpine
   script:
     - npm ci --omit=dev
@@ -25,55 +21,45 @@ lint:
     - node --check store.js
     - node --check campaign.js
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
-# ── Build & push (runner must mount docker.sock) ────────────────────────────
+# build image and push to AWS ECR
+# CI vars needed: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+# AWS_DEFAULT_REGION, AWS_ACCOUNT_ID, ECR_REPO
 build:
   stage: build
   image: docker:27
-  # No docker:dind service — lower memory for 2-day demo
   before_script:
-    - docker info
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - apk add --no-cache aws-cli
+    - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
   script:
-    - docker build -t "$IMAGE_TAG" -t "$IMAGE_LATEST" .
-    - docker push "$IMAGE_TAG"
-    - docker push "$IMAGE_LATEST"
+    - docker build -t $IMAGE:$CI_COMMIT_SHORT_SHA -t $IMAGE:latest .
+    - docker push $IMAGE:$CI_COMMIT_SHORT_SHA
+    - docker push $IMAGE:latest
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
-# ── Same-droplet deploy (simplest for 2-day showcase) ───────────────────────
-# Runner and app share the host Docker daemon via socket.
-deploy_local:
-  stage: deploy
+# trivy scan — critical only, allow_failure so noisy CVEs don't block the demo
+trivy:
+  stage: scan
   image: docker:27
   needs: ["build"]
+  before_script:
+    - apk add --no-cache curl aws-cli
+    - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+    - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
   script:
-    - docker pull "$IMAGE_TAG"
-    - docker tag "$IMAGE_TAG" "$APP_NAME:current"
-    - |
-      if [ -f "$DEPLOY_PATH/docker-compose.prod.yml" ]; then
-        cd "$DEPLOY_PATH"
-        docker compose -f docker-compose.prod.yml up -d --force-recreate app
-      else
-        docker rm -f "$APP_NAME" 2>/dev/null || true
-        docker run -d --name "$APP_NAME" --restart unless-stopped \
-          --env-file "$DEPLOY_PATH/.env" \
-          -p 3006:3006 \
-          -v "$DEPLOY_PATH/data:/app/data" \
-          "$APP_NAME:current"
-      fi
-    - docker image prune -f
-  environment:
-    name: production
+    - docker pull $IMAGE:$CI_COMMIT_SHORT_SHA
+    - trivy image --exit-code 1 --severity CRITICAL --no-progress $IMAGE:$CI_COMMIT_SHORT_SHA
+  allow_failure: true
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DEMO_SAME_DROPLET == "1"
-      when: manual
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
-# ── SSH deploy (use if app is on another host) ──────────────────────────────
-# CI variables: SSH_PRIVATE_KEY, DROPLET_HOST, DROPLET_USER
-deploy_ssh:
+# ssh into the droplet and pull the new image
+# CI vars: SSH_PRIVATE_KEY, DEPLOY_HOST, DEPLOY_USER
+# server must already be able to pull from ECR (aws cli + creds on the box)
+deploy:
   stage: deploy
   image: alpine:3.20
   needs: ["build"]
@@ -82,51 +68,38 @@ deploy_ssh:
     - eval $(ssh-agent -s)
     - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
-    - ssh-keyscan -H "$DROPLET_HOST" >> ~/.ssh/known_hosts
+    - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
   script:
     - |
-      ssh "$DROPLET_USER@$DROPLET_HOST" "bash -s" <<EOF
-        set -euo pipefail
+      ssh $DEPLOY_USER@$DEPLOY_HOST "
+        set -e
         cd $DEPLOY_PATH
-        docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
-        docker pull $IMAGE_TAG
-        docker tag $IMAGE_TAG $APP_NAME:current
+        aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+        docker pull $IMAGE:$CI_COMMIT_SHORT_SHA
+        docker tag $IMAGE:$CI_COMMIT_SHORT_SHA $APP_NAME:current
         docker compose -f docker-compose.prod.yml up -d --force-recreate app
         docker image prune -f
-      EOF
+      "
   environment:
     name: production
-    url: https://$DROPLET_HOST
+  when: manual
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DEMO_SAME_DROPLET != "1"
-      when: manual
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
-# ── Optional smoke check ────────────────────────────────────────────────────
-verify:
-  stage: verify
+# hit /health a couple times after deploy
+smoke:
+  stage: smoke
   image: curlimages/curl:8.10.1
-  needs:
-    - job: deploy_local
-      optional: true
-    - job: deploy_ssh
-      optional: true
+  needs: ["deploy"]
   script:
     - |
-      TARGET="${HEALTH_URL:-http://127.0.0.1:3006/health}"
-      if [ -n "${DROPLET_HOST:-}" ]; then
-        TARGET="https://${DROPLET_HOST}/health"
-      fi
+      url=${HEALTH_URL:-https://$DEPLOY_HOST/health}
       for i in 1 2 3 4 5; do
-        if curl -fsS "$TARGET" >/dev/null; then
-          echo "Health check OK ($TARGET)"
-          exit 0
-        fi
-        echo "Waiting... ($i) $TARGET"
+        curl -fsS $url && exit 0
+        echo waiting $i
         sleep 5
       done
-      echo "Health check failed (ok to ignore for local-only demo)" >&2
       exit 1
   allow_failure: true
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      when: on_success
