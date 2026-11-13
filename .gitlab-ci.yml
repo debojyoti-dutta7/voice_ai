@@ -21,7 +21,7 @@ syntax:
     - node --check store.js
     - node --check campaign.js
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == "demo"
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
 # build image and push to AWS ECR
@@ -38,7 +38,7 @@ build:
     - docker push $IMAGE:$CI_COMMIT_SHORT_SHA
     - docker push $IMAGE:latest
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == "demo"
 
 # trivy scan — critical only, allow_failure so noisy CVEs don't block the demo
 trivy:
@@ -54,7 +54,7 @@ trivy:
     - trivy image --exit-code 1 --severity CRITICAL --no-progress $IMAGE:$CI_COMMIT_SHORT_SHA
   allow_failure: true
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == "demo"
 
 # ssh into the droplet and pull the new image
 # CI vars: SSH_PRIVATE_KEY, DEPLOY_HOST, DEPLOY_USER
@@ -84,7 +84,7 @@ deploy:
     name: production
   when: manual
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == "demo"
 
 # hit /health a couple times after deploy
 smoke:
@@ -102,4 +102,4 @@ smoke:
       exit 1
   allow_failure: true
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == "demo"
